@@ -1,0 +1,87 @@
+services:
+  # NOTE: db-authors is created manually via docker run (not via compose)
+  # CMD: docker run --name db-authors -p 5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=cbucay0599 -e POSTGRES_DB=authors_db -v data-authors:/var/lib/postgresql/data -d postgres:15-alpine
+  # NOTE: finanzas is an existing container used for publications service
+  # CMD: docker run --name finanzas -p 5433:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=cbucay0599 -e POSTGRES_DB=finanzasbd -d postgres
+
+  # ============ Microservicio: Authors Service ============
+  authors-service:
+    build:
+      context: ./servidor/authors-service
+      dockerfile: Dockerfile
+    container_name: authors-service
+    # db-authors already exists (created manually), no need to wait for healthcheck
+    environment:
+      NODE_ENV: production
+      DB_HOST: db-authors
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: cbucay0599
+      DB_NAME: authors_db
+      PORT: 3001
+    ports:
+      - '3001:3001'
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3001/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - microservices
+
+  # ============ Microservicio: Publications Service ============
+  publications-service:
+    build:
+      context: ./servidor/publications-service
+      dockerfile: Dockerfile
+    container_name: publications-service
+    depends_on:
+      - authors-service
+    environment:
+      NODE_ENV: production
+      # Usar el contenedor de BD existente llamado 'finanzas' (aportado por el usuario)
+      DB_HOST: finanzas
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: cbucay0599
+      DB_NAME: finanzasbd
+      PORT: 3002
+      AUTHOR_SERVICE_URL: http://authors-service:3001
+    ports:
+      - '3002:3002'
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3002/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - microservices
+
+  # ============ Frontend: React Application ============
+  frontend:
+    build:
+      context: ./cliente/frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    depends_on:
+      - authors-service
+      - publications-service
+    environment:
+      VITE_API_BASE_URL: http://localhost
+    ports:
+      - '3000:80'
+    networks:
+      - microservices
+
+volumes:
+  data-authors:
+    driver: local
+  data-publications:
+    driver: local
+
+networks:
+  microservices:
+    driver: bridge
+
